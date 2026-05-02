@@ -1,0 +1,100 @@
+name: 'Setup MX Script'
+description: 'Install the MX Script (mx) CLI on a GitHub Actions runner.'
+author: 'Jassim Alkharafi'
+branding:
+  icon: 'code'
+  color: 'green'
+
+inputs:
+  version:
+    description: 'mx version to install (e.g. v0.14.0). Defaults to the latest GitHub release.'
+    required: false
+    default: 'latest'
+
+outputs:
+  version:
+    description: 'The mx version that was installed.'
+    value: ${{ steps.resolve.outputs.version }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Detect platform
+      id: detect
+      shell: bash
+      run: |
+        case "${RUNNER_OS}" in
+          Linux)   os="linux"   ;;
+          macOS)   os="darwin"  ;;
+          Windows) os="windows" ;;
+          *) echo "::error::setup-mx: unsupported runner OS '${RUNNER_OS}'" && exit 1 ;;
+        esac
+        case "${RUNNER_ARCH}" in
+          X64)   arch="amd64" ;;
+          ARM64) arch="arm64" ;;
+          *) echo "::error::setup-mx: unsupported runner arch '${RUNNER_ARCH}'" && exit 1 ;;
+        esac
+        echo "os=$os"     >> "$GITHUB_OUTPUT"
+        echo "arch=$arch" >> "$GITHUB_OUTPUT"
+
+    - name: Resolve version
+      id: resolve
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        v="${{ inputs.version }}"
+        if [ "$v" = "latest" ] || [ -z "$v" ]; then
+          # Use the API (auth helps with rate limits on busy runners).
+          v=$(curl -fsSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/jlkdevelop/mxscript/releases/latest \
+            | grep '"tag_name"' | head -n1 | cut -d'"' -f4)
+        fi
+        if [ -z "$v" ]; then
+          echo "::error::setup-mx: could not resolve mx version"; exit 1
+        fi
+        # Normalise: accept "v0.14.0" or "0.14.0" on input.
+        case "$v" in v*) tag="$v" ;; *) tag="v$v" ;; esac
+        echo "version=$tag" >> "$GITHUB_OUTPUT"
+        echo "Installing mx ${tag}"
+
+    - name: Download and install mx
+      shell: bash
+      run: |
+        set -euo pipefail
+        tag="${{ steps.resolve.outputs.version }}"
+        os="${{ steps.detect.outputs.os }}"
+        arch="${{ steps.detect.outputs.arch }}"
+        ver="${tag#v}"
+
+        if [ "$os" = "windows" ]; then
+          fname="mx_${ver}_${os}_${arch}.zip"
+        else
+          fname="mx_${ver}_${os}_${arch}.tar.gz"
+        fi
+        url="https://github.com/jlkdevelop/mxscript/releases/download/${tag}/${fname}"
+        echo "Downloading $url"
+
+        tmp="$(mktemp -d)"
+        cd "$tmp"
+        curl -fsSL -o "$fname" "$url"
+
+        if [ "$os" = "windows" ]; then
+          unzip -q "$fname"
+          install_dir="$HOME/.mx/bin"
+          mkdir -p "$install_dir"
+          mv mx.exe "$install_dir/"
+        else
+          tar -xzf "$fname"
+          install_dir="$HOME/.mx/bin"
+          mkdir -p "$install_dir"
+          mv mx "$install_dir/"
+          chmod +x "$install_dir/mx"
+        fi
+        echo "$install_dir" >> "$GITHUB_PATH"
+
+    - name: Verify install
+      shell: bash
+      run: mx version
