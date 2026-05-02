@@ -2,7 +2,7 @@
 
 GitHub Action that installs the [MX Script](https://github.com/jlkdevelop/mxscript) (`mx`) CLI on a runner.
 
-> Founded by [Jassim Alkharafi](https://github.com/jlkdevelop). MIT-licensed.
+> Created by [Jassim Alkharafi](https://github.com/jlkdevelop). MIT-licensed.
 
 ## Usage
 
